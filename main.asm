@@ -12,8 +12,7 @@
 ;============================================
 ;
 .extern     bios_halt
-.global     main, _main
-main:
+.global     _main
 _main:      ;
             ; Pre-loop initialization (? not much to do here)
             ;
@@ -41,8 +40,6 @@ _ev_timer10:;
             
             rjmp    _qloop
             ;
-            
-            
             
 
 

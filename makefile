@@ -1,4 +1,4 @@
-# Generic Makefile for Tiny AVR Projects (assembly only to avoid avr-libc)
+# Generic Makefile for Tiny AVR Projects (100% assembly, no startup/avr-libc)
 #
 # (c) Copyright Gilles Gameiro 1998
 # (c) Copyright Birdland Audio 2010~2014
@@ -21,8 +21,8 @@ ALIBS  =
 #------------------------------------------------------------
 #  Define what the project is and what the source files are
 #------------------------------------------------------------
-DUDEMCU	= t4
 MCU     = attiny4
+DUDEMCU	= t4
 CLOCK   = 8000000
 BUILDIR = _build
 ULIBDIR = ../_atmel.libs
@@ -55,8 +55,8 @@ CC      = $(AVRBIN)/avr-gcc
 ASM     = $(AVRBIN)/avr-as
 #ASM     = $(AVRBIN)/avr-as -alms -I $(AVRDIR)/avr/include
 #ASM     = $(AVRBIN)/avr-gcc -x assembler-with-cpp
-AFLAGS  = -gstabs -mmcu=$(MCU) -I.
-LFLAGS  = -Wl,-Map=$(BUILDIR)/$(PROJECT).map,--cref -DF_CPU=$(CLOCK) -mmcu=$(MCU)
+AFLAGS  = -gstabs -mmcu=$(MCU)
+LFLAGS  = -nostartfiles -nodefaultlibs -Wl,-Map=$(BUILDIR)/$(PROJECT).map,--cref -DF_CPU=$(CLOCK) -mmcu=$(MCU)
 
 
 # CCFLAGS Cheat sheet
@@ -75,7 +75,7 @@ LFLAGS  = -Wl,-Map=$(BUILDIR)/$(PROJECT).map,--cref -DF_CPU=$(CLOCK) -mmcu=$(MCU
 #  Everything here after needs not be edited
 #---------------------------------------------
 
-OBJS	= $(foreach file,$(ASRC:.asm=.asm.o) $(ALIBS:.asm=.alib.o), $(BUILDIR)/$(file))
+OBJS	= $(foreach file,$(ASRC:.asm=.o) $(ALIBS:.asm=.alib.o), $(BUILDIR)/$(file))
 
 
 # Define make targets
@@ -98,25 +98,21 @@ clean:
 	clear
 	rm -f $(OBJS)
 	rm -f $(OBJS:.o=.lst)
-	rm -f $(BUILDIR)/$(PROJECT).map
-	rm -f $(BUILDIR)/$(PROJECT).elf
-	rm -f $(BUILDIR)/$(PROJECT).obj
-	rm -f $(BUILDIR)/$(PROJECT).eep
-	rm -f $(BUILDIR)/$(PROJECT).elf
-	rm -f $(BUILDIR)/$(PROJECT).avd
-	rm -f $(BUILDIR)/$(PROJECT).rom
-	rm -f $(BUILDIR)/$(PROJECT).hex
+	rm -f $(BUILDIR)/*
 
+
+view: $(BUILDIR)/$(PROJECT).elf
+	$(AVRBIN)/avr-objdump -S $(BUILDIR)/$(PROJECT).elf | less
 
 
 
 # Declare ASM / Object Rules
-$(BUILDIR)/%.asm.o : %.asm
+$(BUILDIR)/%.o : %.asm
 	$(ASM) -c $(AFLAGS) $(INCLUDE) $< -o $@
+#	$(ASM) -c $(AFLAGS) $(INCLUDE) $< -alms $(@:.o=.lst) -o $@
 	
 $(BUILDDIR)/%.alib.o : $(ULIBDIR)/lib/%.asm
 	$(ASM) $(AFLAGS) $(INCLUDE) $< -o $@
-
 
 
 $(BUILDIR)/$(PROJECT).elf: $(OBJS)
