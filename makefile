@@ -14,7 +14,7 @@ PROJECT = bavmon
 #-------------------------------------------------------------
 # Define Both Program and Libraries ASM and C/C++ input files
 #-------------------------------------------------------------
-ASRC	= start_tiny.s90 bios.s90 main.s90
+ASRC	= startt4.asm bios.asm main.asm
 ALIBS  =
 
 
@@ -52,9 +52,9 @@ LIBDIR  = $(AVRDIR)/lib
 INCLUDE = -I . -I $(ULIBDIR)/inc
 
 CC      = $(AVRBIN)/avr-gcc
-#ASM     = $(AVRBIN)/avr-as
-ASM     = $(AVRBIN)/avr-gcc -x assembler-with-cpp
-CFLAGS  = -g -O2 -DF_CPU=$(CLOCK) -DLITTLE_ENDIAN -mmcu=$(MCU) -Wall -Wstrict-prototypes -Wa,-ahlms=$(@:.o=.lst)
+ASM     = $(AVRBIN)/avr-as
+#ASM     = $(AVRBIN)/avr-as -alms -I $(AVRDIR)/avr/include
+#ASM     = $(AVRBIN)/avr-gcc -x assembler-with-cpp
 AFLAGS  = -gstabs -mmcu=$(MCU) -I.
 LFLAGS  = -Wl,-Map=$(BUILDIR)/$(PROJECT).map,--cref -DF_CPU=$(CLOCK) -mmcu=$(MCU)
 
@@ -75,7 +75,7 @@ LFLAGS  = -Wl,-Map=$(BUILDIR)/$(PROJECT).map,--cref -DF_CPU=$(CLOCK) -mmcu=$(MCU
 #  Everything here after needs not be edited
 #---------------------------------------------
 
-OBJS	= $(foreach file,$(ASRC:.s90=.asm.o) $(ALIBS:.s90=.alib.o) $(CSRC:.c=.cpp.o) $(CLIBS:.c=.clib.o), $(BUILDIR)/$(file))
+OBJS	= $(foreach file,$(ASRC:.asm=.asm.o) $(ALIBS:.asm=.alib.o), $(BUILDIR)/$(file))
 
 
 # Define make targets
@@ -111,17 +111,11 @@ clean:
 
 
 # Declare ASM / Object Rules
-$(BUILDIR)/%.asm.o : %.s90
+$(BUILDIR)/%.asm.o : %.asm
 	$(ASM) -c $(AFLAGS) $(INCLUDE) $< -o $@
 	
-$(BUILDDIR)/%.alib.o : $(ULIBDIR)/lib/%.s90
+$(BUILDDIR)/%.alib.o : $(ULIBDIR)/lib/%.asm
 	$(ASM) $(AFLAGS) $(INCLUDE) $< -o $@
-
-# Declare C / Object Rules
-$(BUILDIR)/%.cpp.o: %.c	
-	$(CC) -c $(CFLAGS) $(INCLUDE) $< -o $@
-$(BUILDIR)/%.clib.o: $(ULIBDIR)/lib/%.c
-	$(CC) -c $(CFLAGS) $(INCLUDE) $< -o $@
 
 
 
