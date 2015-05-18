@@ -3,7 +3,7 @@
 ;
 ;  18 May 2015  Gilles  Created
 ;
-#include "target.inc"
+.include "target.ah"
 
 
 
@@ -12,7 +12,8 @@
 ;============================================
 ;
 .extern     bios_halt
-.global     _main
+.global     main, _main
+main:
 _main:      ;
             ; Pre-loop initialization (? not much to do here)
             ;

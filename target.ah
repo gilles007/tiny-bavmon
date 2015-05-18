@@ -1,4 +1,4 @@
-#include <avr/io.h>
+.include "ggtiny4.ah"
 
 ;##################################################################################################################################
 ;
@@ -9,7 +9,7 @@
 ;##################################################################################################################################
 
 #ifndef  __SFR_OFFSET
-#warning __SFR_OFFSET was not defined, you may not be using the right compiler (though I think the # would fail first)
+#warning __SFR_OFFSET was not defined, you may not be using the right compiler
 #define  __SFR_OFFSET    0
 #endif
 

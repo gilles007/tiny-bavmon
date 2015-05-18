@@ -1,0 +1,35 @@
+.equ  PINB,     0x00
+.equ  DDRB,     0x01
+.equ  PORTB,    0x02
+.equ  PUEB,     0x03
+
+.equ  PORTCR,   0x0c
+
+.equ  PCMSK,    0x10
+.equ  PCIFR,    0x11
+.equ  PCICR,    0x12
+
+.equ  EIMSK,    0x13
+.equ  EIFR,     0x14
+.equ  EICRA,    0x15
+
+
+.equ  ICL0L,    0x22
+.equ  ICL0H,    0x23
+.equ  OCR0BL,   0x24
+.equ  OCR0BH,   0x25
+.equ  OCR0AL,   0x26
+.equ  OCR0AH,   0x27
+.equ  TCNT0L,   0x28
+.equ  TCNT0H,   0x29
+.equ  TIMSK0,   0x2b
+.equ  TCCR0C,   0x2c
+.equ  TCCR0B,   0x2d
+.equ  TCCR0A,   0x2e
+
+.equ  SPL,      0x3d
+.equ  SPH,      0x3e
+.equ  SREG,     0x3f
+
+
+.equ  RAMEND,   0x5f

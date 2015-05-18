@@ -4,7 +4,7 @@
 ; 23 Avr 1999    Gilles   Creation
 ; 26 Jul 1999    Gilles   Split from
 ; 
-#include "target.inc"
+.include "target.ah"
 
 
 
@@ -34,17 +34,15 @@ bios_timer_ticks:
 
 ; Capture all Interrupt Vectors (comment out the ones we use)
 ;=============================================================
-.global  _isr_int0, _isr_pci0, _isr_t0cap, _isr_t0ovf, _isr_t0ca
+.global  _isr_int0, _isr_pci0, _isr_t0cap, _isr_t0ov, _isr_t0ca
 .global  _isr_t0cb, _isr_acmp, _isr_wdt, _isr_vlm, _isr_adc
 
 
-
-.org  0
 _sreset:    ; HERE defined. DO NOT MODIFY OR REDEFINE.
 _isr_int0:  ; External int 0
 ;_isr_pci0: ; Pin Change int 0
 _isr_t0cap: ; Timer 0 capture
-_isr_t0ovf: ; Timer 0 overflow
+_isr_t0ov:  ; Timer 0 overflow
 ;_isr_t0ca: ; Timer 0 compare A
 _isr_t0cb:  ; Timer 0 compare B
 _isr_acmp:  ; Analog Comparator event
