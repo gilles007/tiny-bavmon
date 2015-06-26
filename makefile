@@ -28,18 +28,9 @@ BUILDIR = _build
 ULIBDIR = ../_atmel.libs
 
 
-#mega168 low fuse      CLKDIV8   CKOUT    SUT1     SUT0    CKSEL3   CKSEL2   CKSEL1   CKSEL0
-#                         1        1        1        0        0        0        1        0        
-LFUSE = 0xe2  # Master Clock no divide, Clock out disabled, default internal 128K setup, Internal RC Clock
-
-#mega168 high fuse      RSTDIS   DBWEN    SPIEN    WDTON    EESAVE    BOD2     BOD1     BOD0
-#                         1        1        0        1        1        1        1        1
-HFUSE = 0xdf  # Reset pin disabled, debugWire disabled, SPI programming enabled, Erase EE on program, Disable Brown Out detection
-
-#mega168 ext fuse       RESVD    RESVD    RESVD    RESVD    RESVD   BOOTSZ1  BOOTSZ0  BOOTRST          
-#                         1        1        1        1        1        1        1        1
-EFUSE = 0xff  # Smalest boot sector, Boot Reset set to address 0x000
-
+#tiny4 fuse             RESVD    RESVD    RESVD    RESVD    RESVD    CLKOUT   WDTON   DISRESET          
+#                         1        1        1        1        1        1        1        0
+FUSE = 0xfe
 
 
 
@@ -82,8 +73,9 @@ OBJS	= $(foreach file,$(ASRC:.asm=.o) $(ALIBS:.asm=.alib.o), $(BUILDIR)/$(file))
 all: $(BUILDIR)/$(PROJECT).elf $(BUILDIR)/$(PROJECT).hex
 
 fuses:
-	$(AVRBIN)/avrdude -c avrispmkII -P usb -p $(DUDEMCU) -D -u -U efuse:w:$(EFUSE):m -U hfuse:w:$(HFUSE):m -U lfuse:w:$(LFUSE):m
-
+	$(AVRBIN)/avrdude -c avrispmkII -P usb -p $(DUDEMCU) -D -u -U fuse:w:$(FUSE):m
+#	$(AVRBIN)/avrdude -c avrispmkII -P usb -p $(DUDEMCU) -D -u -U efuse:w:$(EFUSE):m -U hfuse:w:$(HFUSE):m -U lfuse:w:$(LFUSE):m
+	
 
 flash: $(BUILDIR)/$(PROJECT).hex
 	$(AVRBIN)/avrdude -c avrispmkII -P usb -p $(DUDEMCU) -U flash:w:$(BUILDIR)/$(PROJECT).hex:i

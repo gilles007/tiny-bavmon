@@ -16,9 +16,9 @@
 .data
 .global bios_event, bios_timer_ticks
 bios_event:
-.byte
+.byte 0
 bios_timer_ticks:
-.word
+.word 0
 
 
 
@@ -58,43 +58,47 @@ _isr_adc:   ; ADC Conversion done
 ;     T I M E R    0    I N T E R R U P T
 ;---------------------------------------------
 ; We use Timer 0 to produce an event every 10ms and also keep "exact" time.
-; Now, with a timer at 8MHz/prescaler:1024, it would take 78.128ticks to 10ms
-; So we count 78ticks 7 times and 79 ticks once which produces exactly 10ms every 80ms.
-; (same thing with a timer at 1MHz with a prescaler of 128) 
+; --> With a ClkIO at 8MHz/prescaler:1024, it would take 78.128 ticks to 10ms
+; So we count 78ticks 7 times and 79 ticks once which produces exactly 8*10ms every 80ms.
+; (same thing with ClkIO at 1MHz with a prescaler of 128)
+;.equ    T0OCRA_LOAD0,    77
+;.equ    T0OCRA_LOADN,    78
+; --> With a ClkIO at 4MHz/prescaler:256, it would take 156.24 ticks to 10ms
+; So we count 156 ticks 3 times and  157 ticks once which produces 4*10ms every 40ms.
+.equ    T0OCRA_LOAD0,    156
+.equ    T0OCRA_LOADN,    157
 ;========================================================================================
-.equ    T0OCRA_LOAD0,    78
-.equ    T0OCRA_LOAD1,    77
 
 _isr_t0ca:  ; Timer 0 compare A event
             ;
-            clr     r25
             push    r24
             ;
             lds     r24, bios_timer_ticks
             inc     r24
             sts     bios_timer_ticks, r24
-            andi    r24, 0x07
-            breq    _t0_load0
-_t0_load1:  ; 7 out of 8 times, we count till 78 (0..77)
-            ldi     r24, T0OCRA_LOAD1
+            brne    _t0_novf
+            ;
+            lds     r25, bios_timer_ticks+1
+            inc     r25
+            sts     bios_timer_ticks+1, r25
+_t0_novf:   ;
+            clr     r25
+            andi    r24, 0x03
+            breq    _t0_loadN
+            ;
+            ; N-1 time out of N, we count LOAD0
+            ldi     r24, T0OCRA_LOAD0
             out     OCR0AH, r25 
             out     OCR0AL, r24
             rjmp    _t0_count
             ;
-_t0_load0:  ; every 8th compare, we use value 79
-            ldi     r16, T0OCRA_LOAD0
+_t0_loadN:  ; every Nth compare, we compensate
+            ldi     r24, T0OCRA_LOADN
             out     OCR0AH, r25
             out     OCR0AL, r24
-            ; now, bios_timer_ticks & 0x07 = 0, maybe it rolled over
-            lds     r24, bios_timer_ticks
-            tst     r24
-            brne    _t0_count
-_t0_ovf8:   ; bios_timer_ticks == 0, increase high byte
-            lds     r24, bios_timer_ticks+1
-            inc     r24
-            sts     bios_timer_ticks+1, r24
             ;
-_t0_count:  ; Every 10ms, we say so to main via the bios_event "semaphore" event;            
+_t0_count:  ; Send the EVENT_TIMER message every 10ms for main's house-keeping
+            ;
             lds     r24, bios_event
             sbr     r24, EVENT_TIMER_BIT
             sts     bios_event, r24
@@ -112,6 +116,7 @@ _t0_count:  ; Every 10ms, we say so to main via the bios_event "semaphore" event
 ; Used to detect the linux heartbeat LED going on
 ;===================================================
 _isr_pci0:  ; Pin Change int 0
+            reti
             ;
             push    r24
             ;
@@ -129,7 +134,7 @@ _isr_pci0:  ; Pin Change int 0
 
 ;========================================================
 ;
-;  BIOS_HALT     System call:  wait for bios events
+;  BIOS_WAIT_FOR_EVENT:    Wait for bios events
 ;
 ;  Blocks and returns one of the bios events in r16
 ;  Note that if there are multiple events waiting
@@ -144,27 +149,26 @@ _isr_pci0:  ; Pin Change int 0
 ;  (r25 is the system wide ZERO register)
 ;
 ;========================================================
-.global     bios_halt
-bios_halt:  ;
+.global     bios_wait_for_event
+bios_wait_for_event:
             lds     r16, bios_event
             tst     r16
-            breq    bios_halt
+            breq    bios_wait_for_event
             ;
-            clr     r25              ; paranoid zero
+            clr     r25               ; paranoid zero
             ;
-            cli                      ; Since bios_event is volatile, protect
-            lds     r16, bios_event  ; (volatile)
+            cli                       ; Since bios_event is volatile, protect
+            lds     r16, bios_event   ; (volatile)
             mov     r25, r16
             dec     r25
-            and     r25, r16         ; now r25 has set the LSB event
-            com     r25              ; ^ 0xff
-            and     r16, r25         ; clear that bit in current events
+            and     r25, r16          ; contains all set bits minus the LSB set
+            eor     r25, r16          ; now r25 has only the LSB event
+            eor     r16, r25          ; remove that bit from r16
             sts     bios_event, r16
             mov     r16, r25
-            sei
             clr     r25
+            sei
             ;
-            com     r16              ; ^ 0xff (recover single bit event)
             ret
 
 
@@ -177,13 +181,20 @@ _ubios1:    ;
             cli                             ; no interrupts until all until everything is ready (ubios4)
             clr     r25
             ;
+            ;  Now is a good time to speed up Clock (so we initialize faster)
+            ;
+            ldi     r24, CCP_SIGNATURE
+            out     CCP, r24
+            ldi     r24, 0x01               ; Run at Clk/2 = 4MHz (plenty fast for what we need to do)
+            out     CLKPSR, r24
+            ;
             ;  Set port direction and stuff. It's ok to hold the BAV in reset until we're running (longer RC)
             ;
-            out     PUEB, r25               ; no pull-ups what-so-ever
-            ldi     r24, BAV_RESET_MASK
-            out     PORTB, r24              ; ok to hold BAV reset held until we're initialized but make sure we don't touch PMIC ON
-            ldi     r24, BAV_RESET_MASK|PMIC_BUTTON_MASK
+            ldi     r24, OUT_BAVRESET
+            out     PORTB, r24              ; ok to hold BAV reset held until we're initialized but make sure we don't touch the PMIC switch though
+            ldi     r24, OUT_BAVRESET | OUT_PMICBUTTON
             out     DDRB, r24               ; set bootstraps as inputs and controls as outputs
+            out     PUEB, r25               ; no pull-ups what-so-ever
             ;
             ret
 
@@ -202,7 +213,7 @@ _ubios4:    ;
             ;
             out     TCCR0C, r25             ; no force output compares
             out     TCCR0A, r25
-            ldi     r24,0x0d                ; 00x01101: default input capture (unused), CTC, Prescaler:1024
+            ldi     r24,0x0C                ; 00z01100: default input capture (unused), CTC, ClkIO prescaler: 256
             out     TCCR0B, r24
             ;
             ldi     r24, T0OCRA_LOAD0

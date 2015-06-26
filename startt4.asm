@@ -49,7 +49,6 @@
 _sreset:    ; First, set stack
             ;
             cli
-            clr     r25
             ;
             clr     r31
             ldi     r30, RAMEND
@@ -58,6 +57,7 @@ _sreset:    ; First, set stack
             ;
             ; Call user provided hardware initialization
             ;
+            clr     r25
             rcall   _ubios1
             ;
             ; Zero the internal RAM contents

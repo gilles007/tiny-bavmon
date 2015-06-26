@@ -27,9 +27,17 @@
 .equ  TCCR0B,   0x2d
 .equ  TCCR0A,   0x2e
 
+.equ  WDTCSR,   0x31
+.equ  CLKPSR,   0x36
+.equ  OSCCAL,   0x39
+.equ  CCP,      0x3c
+
 .equ  SPL,      0x3d
 .equ  SPH,      0x3e
 .equ  SREG,     0x3f
 
 
 .equ  RAMEND,   0x5f
+
+
+.equ  CCP_SIGNATURE, 0xD8
