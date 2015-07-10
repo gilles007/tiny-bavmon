@@ -54,6 +54,74 @@ _isr_adc:   ; ADC Conversion done
 
 
 
+.global delay_xx
+delay_xx:   ldi     r19, 1
+            rjmp    1f
+delay_xxx:  ldi     r19, 2
+1:          ldi     r18, 0xd0
+2:          ldi     r17, 0x80
+3:          nop
+            dec     r17
+            brne    3b
+            dec     r18
+            brne    2b
+            dec     r19
+            brne    1b
+            ret
+
+
+; flashes value of r16 on LED in binary starting with MSB (short pulse = 0, long pulse = 1)
+.global flash_r16
+flash_r16:  cli
+            ldi     r17, 8
+1:          ;
+            push    r17
+            ;
+            sbi     PORT_OUT, OUT_PMICBUTTON_BIT
+            rcall   delay_xx                      ; short pusle if MSB=0
+            rol     r16
+            brcc    2f
+            rcall   delay_xxx                     ; lengthen pulse if MSB=1
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+;            rjmp    3f
+            ;
+2:          cbi     PORT_OUT, OUT_PMICBUTTON_BIT
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+3:          ;
+            cbi     PORT_OUT, OUT_PMICBUTTON_BIT
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            ;
+            pop     r17
+            sei
+            dec     r17
+            brne    1b
+            ;
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            rcall   delay_xxx
+            ret
+
+
+
+
+
 ;========================================================================================
 ;     T I M E R    0    I N T E R R U P T
 ;---------------------------------------------
@@ -71,6 +139,8 @@ _isr_adc:   ; ADC Conversion done
 
 _isr_t0ca:  ; Timer 0 compare A event
             ;
+            push    r24
+            in      r24, SREG
             push    r24
             ;
             lds     r24, bios_timer_ticks
@@ -100,9 +170,11 @@ _t0_loadN:  ; every Nth compare, we compensate
 _t0_count:  ; Send the EVENT_TIMER message every 10ms for main's house-keeping
             ;
             lds     r24, bios_event
-            sbr     r24, EVENT_TIMER_BIT
-            sts     bios_event, r24
+            sbr     r24, EVENT_TIMER
+ ;           sts     bios_event, r24
             ;
+            pop     r24
+            out     SREG, r24
             pop     r24
             reti
 
@@ -116,14 +188,23 @@ _t0_count:  ; Send the EVENT_TIMER message every 10ms for main's house-keeping
 ; Used to detect the linux heartbeat LED going on
 ;===================================================
 _isr_pci0:  ; Pin Change int 0
-            reti
-            ;
             push    r24
+            in      r24, SREG
+            push    r24
+            clr     r25
             ;
             lds     r24, bios_event
-            sbr     r24, EVENT_LINUXHB_BIT
+            sbis    PORT_IN, LINUX_HBLED_BIT      ; if (LED is ON)
+            rjmp    _i0_ledoff
+            sbr     r24, EVENT_LED_ON             ;   push_event(LED just went ON);
+            rjmp    _i0_done
+_i0_ledoff: ;                                     ; else
+            sbr     r24, EVENT_LED_OFF            ;   push_event(LED just went OFF);
+_i0_done:   ;
             sts     bios_event, r24
             ;
+            pop     r24
+            out     SREG, r24
             pop     r24
             reti
 
@@ -152,10 +233,8 @@ _isr_pci0:  ; Pin Change int 0
 .global     bios_wait_for_event
 bios_wait_for_event:
             lds     r16, bios_event
-            tst     r16
+            and     r16, r16
             breq    bios_wait_for_event
-            ;
-            clr     r25               ; paranoid zero
             ;
             cli                       ; Since bios_event is volatile, protect
             lds     r16, bios_event   ; (volatile)
@@ -210,7 +289,6 @@ _ubios4:    ;
             ;  to Clear on Compare A (CTC), no Output Compare A/B (OC0A/B) pins, Int on CompareA
             ;
             clr     r25                     ; r25 is our zero register 
-            ;
             out     TCCR0C, r25             ; no force output compares
             out     TCCR0A, r25
             ldi     r24,0x0C                ; 00z01100: default input capture (unused), CTC, ClkIO prescaler: 256
@@ -226,6 +304,12 @@ _ubios4:    ;
             ldi     r24, 2
             out     TIMSK0, r24             ; enable interrupt on compare A
             ;
+            inc     r25                     ; (r25 = 1)
+            out     PCMSK, r25              ; enable PCINT0 as source of PCINT (1~3 disabled)
+            out     PCICR, r25              ; enable PCINT interrupt
+            ;
+            clr     r25
+            sts     bios_event, r25
             sei                             ; all bets are off (intrrupts on)
             ret
 

@@ -18,11 +18,15 @@
 
 ; Events, configuration constants
 ;==================================
-.equ  EVENT_TIMER_BIT,  	4
+.equ  EVENT_TIMER_BIT,  	0
 .equ  EVENT_TIMER,       (1 << EVENT_TIMER_BIT)
 
-.equ  EVENT_LINUXHB_BIT,  1
-.equ  EVENT_LINUXHB,     (1 << EVENT_LINUXHB_BIT)
+; LED is the Linux Heartbeat (if connected to us to enable watchdog)
+.equ  EVENT_LED_ON_BIT,   2
+.equ  EVENT_LED_ON,      (1 << EVENT_LED_ON_BIT)
+.equ  EVENT_LED_OFF_BIT,  3
+.equ  EVENT_LED_OFF,     (1 << EVENT_LED_OFF_BIT)
+
 
 
 ;************************************************
@@ -37,9 +41,8 @@
 ; when tied to ground, this pin will never see any rising edges and WD will be disabled
 ; when tied to the linux heartbeat LED, this pin will detect the heartbeat and enable WD reset
 ; NOTE THAT THE CODE ASSUMES THIS TO BE 0 (as we ror PBIN into the cary to then roll C into the signature)
-.equ  BOOTSTRAP_WD_BIT,           0
-.equ  BOOTSTRAP_WD,              (1 << BOOTSTRAP_WD_BIT)
-
+.equ  LINUX_HBLED_BIT,            0
+.equ  LINUX_HBLED,               (1 << LINUX_HBLED_BIT)
 
 
 ; PB1: BOOTSTRAP_ON input used to enable/disable Always ON Appliance mode
@@ -53,18 +56,9 @@
 .equ  BOOTSTRAP_PWR,             (1 << BOOTSTRAP_PWR_BIT)
 
 
-
 ; PB2: output to the mosfet which simulates depressing the PMIC power button (when high)
 .equ  OUT_PMICBUTTON_BIT,         2
 .equ  OUT_PMICBUTTON,            (1 << OUT_PMICBUTTON_BIT)
-
-; FLAG_PMICON flag indicates that we are in the middle of generating a pulse to the PMIC power button
-; in this stat, we wait for a pre-determined amount of 10ms counts and then release the power button
-; NOTE THAT BY USING THE SAME PORT BITS FOR THE FLAGS THAN THE PORT, WE CAN USE THE FLAGS AS A CHACHE VALUE OF THE PORT VALUES
-; (thought this would take one more RAM byte than if reading the port pins, I do prefer to do it this way)
-.equ  FLAG_INPOWER_PULSE_BIT,     OUT_PMICBUTTON_BIT
-.equ  FLAG_INPOWER_PULSE,        (1 << FLAG_INPOWER_PULSE_BIT)
-
 
 
 ; PB3: output to the mosfet which produces the BAV335x system wide reset (when high)
@@ -72,25 +66,29 @@
 .equ  OUT_BAVRESET_BIT,           3
 .equ  OUT_BAVRESET,              (1 << OUT_BAVRESET_BIT)
 
-; FLAG_RESETON flag indicates that we are in the middle of generating a reset to the BAV board
-; in this state, we just wait a pre-determined amount of 10ms counts and then release the reset
-.equ  FLAG_INRESET_PULSE_BIT,     OUT_BAVRESET_BIT
-.equ  FLAG_INRESET_PULSE,        (1 << FLAG_INRESET_PULSE_BIT)
-
-
 
 
 ;*******************************************
 ; Target Hardware Constants for application
 ;*******************************************
 
-; Let QRS be the beat (LED on) 
-.equ  LINUX_QRS_MIN,         5    ; Let this be the shortest accepted on time for the heartbeat LED
-.equ  LINUX_QRS_MAX,         8    ; If linux heartbeat LED ON lasts longer than this, we log the 1 a second time to mark a pulse too long (invalidate possible signature)
+; Typical Linux Heartbeat under light load is:
+;      RS                          T                               P       Q   RS                          T                         P
+;       _____________               _____________                               _____________               ____________ 
+;      |             |             |             |                             |             |             |            |
+; _____|             |_____________|             |_____________________________|             |_____________|            |__________________
+;      .<-- 125ms -->.<-- 155ms -->.<-- 125ms -->.<---------  775ms  --------->.                             .
+;      |<--------  280ms  -------->|<----------------  900ms  ---------------->|
+;
+; https://en.wikipedia.org/wiki/Cardiac_cycle
+; https://en.wikipedia.org/wiki/Electrical_conduction_system_of_the_heart
 
-.equ  LINUX_QSQ_SHORT,      25    ; When heartbeat is OFF for this long, we consider this a short off beat (single 0 in signature)
-.equ  LINUX_QSQ_LONG,       40    ; When heartbeat is OFF for this long, we consider this a long off beat (double 0 in signature) 
-.equ  LINUX_QRS_TIMEOUT,   250    ; every 2.5s without heartbeat ON (too long), we push an additional 0 into the signature (triple 0 would invalidate signature)
+
+; Let QRS be the beat (LED on) 
+.equ  LINUX_RS_MAX,         28    ; If linux heartbeat LED ON lasts longer than this, we log an extra 1 to mark a pulse too long (invalidate possible signature)
+
+.equ  LINUX_STQ_THRESHOLD,  46    ; If the low state lasts less than treshold, shift one '0', otherwise shift two '0'
+.equ  LINUX_RSTQ_TIMEOUT,  250    ; every 2.5s without any toggles,heartbeat ON (too long), we push an additional 0 into the signature (triple 0 would invalidate signature)
 
 
 .equ  RESET_PULSE_LEN,      25    ; Reset pulse is 250ms
@@ -105,15 +103,36 @@
 
 ; FLAG_WD_ENABLED bit is set once we have observed enough regular heartbeats matching the linux signature
 ; This in turn enables the Linux heartbeat Watchdog functionality where we Reset the BAV upon heartbeat timeouts.
-.equ  FLAG_WD_ENABLED_BIT,    4
-.equ  FLAG_WD_ENABLED,       (1 << FLAG_WD_ENABLED_BIT)
+.equ  FLAG_WD_ENABLED_BIT,        7
+.equ  FLAG_WD_ENABLED,           (1 << FLAG_WD_ENABLED_BIT)
 
 
-; FLAG_WAIT_LEDOFF flag means we have seen the rising edge of the heartbeat LED and are waiting for the falling edge
-; (the rising edge generates an interrupt whereas the falling edge is polled in the 10ms timer)
-; (we could also do like I did in the Birdland infrared received and change the edge of the interrupt but this does not require that kind of precision) 
-.equ  FLAG_WAIT_LEDOFF_BIT,   5
-.equ  FLAG_WAIT_LEDOFF,      (1 << FLAG_WAIT_LEDOFF_BIT)
+; FLAG_PMICON flag indicates that we are in the middle of generating a pulse to the PMIC power button to turn it ON
+; in this state, we wait for a pre-determined amount of 10ms counts and then release the power button
+.equ  FLAG_INPOWER_PULSE_BIT,     5
+.equ  FLAG_INPOWER_PULSE,        (1 << FLAG_INPOWER_PULSE_BIT)
+
+
+; FLAG_RESETON flag indicates that we are in the middle of generating a reset to the BAV board
+; 201506: Since I do not want to forever disable ISP by disabling the RESET pin (to make it a GPIO)
+; I decided to use the PMIC to reset the board. We can depress the PMIC button for 10 seconds to force a power off
+; and then wait and depress the PMIC button again to turn it back on effectively causing the same as a RESET.
+.equ  FLAG_INRESET_PULSE_BIT,     4
+.equ  FLAG_INRESET_PULSE,        (1 << FLAG_INRESET_PULSE_BIT)
+
+
+; FLAG_QRST_TIMEOUT is set when a timeout (> 2 some seconds) happens waiting for a LED toggle
+; We keep track of this so that next time a LED toggle happens, we do not try to figure out timings, just log the bit
+.equ  FLAG_QRST_TIMEOUT_BIT,     1
+.equ  FLAG_QRST_TIMEOUT,        (1 << FLAG_QRST_TIMEOUT_BIT)
+
+
+; FLAG_LED_ISON is set/reset when we receive the toggle LED interrupt event to help us know if we timed out with the LED On or Off.
+; We use this flag to push the last status of the LED into the heatbeat_signature when there is a time out on the heartbeat
+; (this is why we use bit 0 so we can easily roll it into the carry with one instruction)
+.equ  FLAG_LED_IS_ON_BIT,        0
+.equ  FLAG_LED_IS_ON,           (1 << FLAG_LED_ISON_BIT)
+
 
 
 ; The ONEs represent the LED on, single Zero is the short pulse between 2 ONs, and the TWO Zeroes are the long pulse
