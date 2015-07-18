@@ -5,11 +5,24 @@
 ;
 .include "target.ah"
 
+; GENERAL COMMENT NOTES (APPLICABLE TO ALL FILES EXCEPT BIOS)
+; - r16 is the generic program wide scrap register
+; - r20 is the program wide register for main_flags
+; - r25 is the program wide ZERO register (including BIOS)
 
-; _shift_signature: rotates left the heartbeat signature using the cary for b0
-; returns the MSB of the heartbeat signature in r16
-;------------------------------------------------------------------------------
+
+;----------------------------------------------------------------------------------
+; function _shift_signature(r20)
+; rotates left the heartbeat_signature shifting the current LED signature in b0
+; Inputs:
+;   LED state as FLAG_LED_IS_ON provided in r20 (main loop wide register for main_flags)
+; Outputs:
+;   r20 (program wide main_flags) is updated
+;   r16 Contains the MSB of the heartbeat signature on output
+;----------------------------------------------------------------------------------
 _shift_signature:
+            mov     r16, r20
+            ror     r16                                       ; move b0 FLAG_LED_IS_ON into cary
             lds     r16, heartbeat_signature
             rol     r16
             sts     heartbeat_signature, r16
@@ -18,6 +31,31 @@ _shift_signature:
             sts     heartbeat_signature+1, r16
             ret
 
+;----------------------------------------------------------------------------------
+; function _set_state(r16)
+; changes the state to that specified by r16 and clears proper timing counters
+; Inputs:
+;   r16 contains the new state that we are entering
+;   r20 the current value of main_flags
+;----------------------------------------------------------------------------------
+_set_state:
+            cbr     r20, STATE_IN_RESET | STATE_POST_RESET | STATE_PMIC_ON | FLAG_WD_ENABLED | FLAG_QRST_TIMEOUT
+            or      r20, r16                                  ;
+            sts     main_flags, r20                           ; set new state in main_flags
+            ldi     r16, STATE_IN_RESET | STATE_PMIC_ON
+            and     r16, r20                                  ; if (state != IN_RESET) && (state != PMIC_ON)
+            brne    _sst_swon
+            cbi     PORT_OUT, OUT_PMICBUTTON_BIT              ;   release PMIC_BUTTON // this also allows us to enter opearting mode by setting state to 0
+            rjmp    _sst_end
+_sst_swon:  ;                                                 ; else
+            sbi     PORT_OUT, OUT_PMICBUTTON_BIT              ;   depress the PMIC_BUTTON
+_sst_end:   ;
+            sts     qrst_timer, r25
+            sts     pulse_timer, r25
+            sts     pulse_timer+1, r25
+            ret
+
+
 
 
 
@@ -25,44 +63,34 @@ _shift_signature:
 ;            M A I N    C o d e
 ;============================================
 ;
-.extern     flash_r16
-.extern     delay_xx
+
+
 
 .global     _main
 _main:      ;
             ; Pre-loop initialization (? not much to do here)
             ;
             clr     r25                           ; r25 is our system wide zero register (just being paranoid)
-            sts     main_flags, r25
-            sts     pulse_time, r25
-            ; pre-loop, check if power is off (and auto-power-on option enabled) and generate the power pusle if needed
-            ;in      r17, PORT_IN                  ; check to see if power is off and auto-on is enabled
-            ;sbrs    r17, BOOTSTRAP_PWR_BIT        ; // PB0 == 1 means no power and auto-on option enabled
-            ;rjmp    _qloop                        ; if (there is no power -and- auto-power-on option is enabled)
-            ;ldi     r20, FLAG_INRESET_PULSE + FLAG_INPOWER_PULSE
-            ;out     PORT_OUT, r20                 ;   // generate pulse on PMIC power button
-            ;sts     main_flags, r20               ;   // main _qloop will release it when pulse_time reaches the target pulse length
-            sts			main_flags, r25
-
-
-
-
+            lds     r20, main_flags
+            clr     r16
+            rcall   _set_state                    ; set_state 0
+ sbi     PORT_OUT, OUT_PMICBUTTON_BIT              ;   push the PMIC_BUTTON
+            ;
             ;
 _qloop:     ;**************************************************************************************************
             ;
             ;  M A I N   E V E N T   L O O P   (Dequeues events form the BIOS and processes them accordignly)
             ;
             ;**************************************************************************************************
-
-
-
-            rcall   bios_wait_for_event           ; Display BOOT message
-;            sbrc    r16, EVENT_TIMER_BIT
-;            rjmp    _ev_timer
-            sbrc    r16, EVENT_LED_OFF_BIT
-            rjmp    _ev_ledoff
-            sbrs    r16, EVENT_LED_ON_BIT
-            rjmp    _qloop
+            ;
+            rcall   bios_wait_for_event
+            lds     r20, main_flags               ; always have main_flags handy in r20
+            sbrc    r16, EVENT_TIMER_BIT          ; if (event == EVENT_TIMER)
+            rjmp    _ev_timer                     ;   do_timer_10ms_house_keeping_work()
+            sbrc    r16, EVENT_LED_OFF_BIT        ; else if (event == LED_IS_OFF)
+            rjmp    _ev_ledoff                    ;   handle_LED_OFF_event()
+            sbrs    r16, EVENT_LED_ON_BIT         ; else if (event == LED_IS_ON)
+            rjmp    _qloop                        ; { ....
             ;
             ;
             ;
@@ -72,11 +100,8 @@ _ev_ledon:  ;******************************************************
             ;
             ;******************************************************
             ;
-sbi     PORT_OUT, OUT_PMICBUTTON_BIT
-
-            rjmp    _qloop
-            ;
-            ;
+            sbr     r20, FLAG_LED_IS_ON
+            rjmp    _evled_do
             ;
 _ev_ledoff: ;********************************************************
             ;
@@ -84,9 +109,24 @@ _ev_ledoff: ;********************************************************
             ;
             ;********************************************************
             ;
-cbi     PORT_OUT, OUT_PMICBUTTON_BIT
-
+            cbr     r20, FLAG_LED_IS_ON
+_evled_do:  ;
+            cbr     r20, FLAG_QRST_TIMEOUT
+            sts     main_flags, r20                           ; save current state of led in main_flags FLAG_LED_IS_ON bit
+            rcall   _shift_signature                          ; shift current LED state (FLAG_LED_IS_ON) into signature
+            sts     qrst_timer, r25                           ; reset qrst_timer
+            ;
+            subi    r16, LINUX_VALID_SIGHI
+            brne    _qloop
+            lds     r16, heartbeat_signature
+            subi    r16, LINUX_VALID_SIGLO
+            brne    _qloop                                    ; if (signature == LINUX_VALID_SIGNATURE)
+            sbr     r20, FLAG_WD_ENABLED                      ;   // SAY WE HAVE OBSERVED A LINUX HEARTBEAT FOR LONG ENOUGH
+            sts     main_flags, r20                           ;   // FROM NOW ON, THE WATCHDOG FUNCTIONALITY IS ENABLED
+ cbi     PORT_OUT, OUT_PMICBUTTON_BIT              ;   push the PMIC_BUTTON
+_continue:
             rjmp    _qloop
+            ;
             ;
             ;
             ;
@@ -96,43 +136,96 @@ _ev_timer:  ;***************************************************
             ;
             ;***************************************************
             ;
+            ;  START BY MANAGING STATE MACHINES
+            lds     r22, pulse_timer
+            lds     r23, pulse_timer+1
+            subi    r22, -1
+            sbci    r23, -1                                   ; pulse_timer++;
+            sts     pulse_timer+1, r23
+            sts     pulse_timer, r22
             ;
-            ; qrst_timer++;
-            ; if (qrst_timer > LINUX_QRS_TIMEOUT) {
-            ;   set flag QRST_TIME_OUT
-            ;   shift 'LAST_LED_STATE' into signature again // slowly adding up to all '0' or all '1' if LED is stuck
-            ;   if (!FLAG_WD_ENABLED)
-            ;     continue
-            ;   if (signature == 'all 0') || (signature == 'all 1') {
-            ;     set FLAG_RESET_ON
-            ;     push PMIC button (for 7+ secs)
-            ;   }
-            ; }
-            ; else if (flag QRST_TIME_OUT)
-            ;   continue
-            ; if (FLAG_LED_IS_ON) && (qrst_time >
+            sbrc    r20, STATE_IN_RESET_BIT                   ; if (state == IN_RESET)
+            rjmp    _st_inrst                                 ;   handle_reset_pulse();
+            sbrc    r20, STATE_PMIC_ON_BIT                    ; else if (state == PMIC_ON) {
+            rjmp    _st_inpmic                                ;   handle_pmic();
+            cpi     r22, TIME_SETTLE_PMIC_TEST                ; else if (lo(pulse_timer) == TIME_SETTLE_PMIC_TEST) {  // every 2.5s (starting shortly after reset)
+            ;;
+            ;; TODO: Check if power needs to be turned on
+            ;;
+            rjmp    _evt_qrst
+            ;
+            ;
+_st_inpmic: ;                                                 ; function handle_pmic() {
+            cpi     r22, TIME_PMIC_ON
+            brne    _qloop                                    ;   if (pulse_timer == TIME_PMIC_ON)
+            rjmp    1f                                        ;     _set_state(NORMAL_OPERATION) // normal state after power-on or reset
+            ;
+            ;                                                 ; }
+            ;
+            ;
+_st_inrst:  ;                                                 ; function handle_reset() {
+            cpi     r22, TIME_IN_RESET_LO
+            sbci    r23, TIME_IN_RESET_HI
+            brne    _qloop                                    ;   if (pulse_timer == TIME_IN_RESET)
+1:          clr     r16                                       ;     _set_state(NORMAL_OPERATION) // normal state after power-on or reset
+            ldi     r16, STATE_POST_RESET
+            rcall   _set_state
+            rjmp    _qloop                                    ; }
+            ;
+            ;
+            ;
+            ;
+            ;----------------------------------------------------------------
+_evt_qrst:  ;  WHEN NO SPECIAL STATES (PMIC) NEED TO BE HANDLED, CHECK QRST
+            ;----------------------------------------------------------------
+            ;
+            lds     r21, qrst_timer
+            inc     r21                                       ; qrst_timer++
+            sts     qrst_timer, r21
+            ;
+            brne    _evt_noto                                 ; if (qrst_timer rolled over >2.55s since last LED toggle) {
+            sbr     r20, FLAG_QRST_TIMEOUT
+            sts     main_flags, r20                           ;   set flag QRST_TIMEOUT
+            rcall   _shift_signature                          ;   shift 'LAST_LED_STATE' into signature // slowly adding up to all '0' or all '1' when LED is stuck
+            ;
+            sbrs    r20, FLAG_WD_ENABLED_BIT                  ;   if (flag WD_EMABLED is NOT set)
+            rjmp    _continue                                 ;     continue;
+            ;
+            tst     r16                                       ;   // r16 is heartbeat_signature+1 (high byte)
+            brne    _evt_isff
+            lds     r16, heartbeat_signature
+            tst     r16
+            breq    _evt_wdto                                 ;   if (  (signature == 0x0000)
+            rjmp    _continue
+_evt_isff:  inc     r16
+            brne    _continue
+            lds     r16, heartbeat_signature
+            inc     r16                                       ;       || (signature == 0xFFFF) )
+            brne    _continue
+_evt_wdto:  ;
+            ;                                                 ;     // WE HAD A LINUX HEARTBEAT TIMEOUT WHILE WE HAD NOTICED A VALID HEARTBEAT: THIS MEANS RESET!
+            cbr     r20, FLAG_WD_ENABLED                      ;     Clear WD_ENABLED bit Since we're about to reset, disable
+            sts     main_flags, r20
+            ldi     r16, STATE_IN_RESET
+            rcall   _set_state                                 ;     set_state(STATE_IN_RESET);
+            ;                                                 ;   }
+            rjmp    _qloop                                    ; }
+_evt_noto:  ;
+            sbrc    r20, FLAG_QRST_TIMEOUT_BIT                ; else if ( flag QRST_TIMEOUT)
+            rjmp    _qloop                                    ;   continue;
+            nop
+            sbrc    r20, FLAG_LED_IS_ON_BIT                   ; if (  (flag LED is OFF)
+            rjmp    _qloop
+            subi    r21, LINUX_STQ_THRESHOLD                  ;     && (qrst_timer == LINUX_QST_THRESHOLD) {
+            brne    _continue
+            rcall   _shift_signature                          ;   shift a second '0' to signature for long pause between 2 heart beats ('1's)
+            sbr     r20, FLAG_QRST_TIMEOUT                    ;   set FLAG_QRST_TIMEOUT so we don't do this again...
+            sts     main_flags, r20
+            ;
+            rjmp    _qloop
 
 
 
-            ; qrst_timer++
-            ; if (qrst_timer < TIME_OUT_VALUE)
-            ;   continue
-            ; shift 'last led status' into signature
-            ; set flag QRST_TIME_OUT
-            ; if (flag WD_ENABLED is NOT set)
-            ;   continue
-            ; if (signature == all '0') || (signature == all '1')
-            ;   // initiate Reset
-            ;   set_flag FLAG_INRESET
-            ;   push PMIC button
-            ;   reset pulse_time (int)
-
-
-
-
-
-            rjmp    _qloop                        ; }
-            
 
 
 
@@ -144,10 +237,10 @@ main_flags:             ; Main flags is used for booleans storage
 .byte 0
 heartbeat_signature:    ; Keeps a signature of the heart beat (to detect if it's present and/or if a timeout has occured)
 .word 0
-qrst_timer:              ; Used to detect time between heart beats
+qrst_timer:             ; Used to detect time between heart beats
 .byte 0
-pulse_time:             ; Used to count the length of the PMIC and RESET pulses
-.byte 0
+pulse_timer:            ; Used to count the length of the PMIC and RESET pulses
+.word 0
 
 
 .end

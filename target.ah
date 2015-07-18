@@ -85,58 +85,82 @@
 
 
 ; Let QRS be the beat (LED on) 
-.equ  LINUX_RS_MAX,         28    ; If linux heartbeat LED ON lasts longer than this, we log an extra 1 to mark a pulse too long (invalidate possible signature)
+;.equ  LINUX_RS_MAX,         40    ; If linux heartbeat LED ON lasts longer than this, we log an extra 1 to mark a pulse too long (invalidate possible signature)
 
-.equ  LINUX_STQ_THRESHOLD,  46    ; If the low state lasts less than treshold, shift one '0', otherwise shift two '0'
-.equ  LINUX_RSTQ_TIMEOUT,  250    ; every 2.5s without any toggles,heartbeat ON (too long), we push an additional 0 into the signature (triple 0 would invalidate signature)
+.equ  LINUX_STQ_THRESHOLD,  40     ; If the low state lasts longer than this treshold, we shift a second '0' to the signature
+;.equ  LINUX_RSTQ_TIMEOUT,  250    ; every 2.5s without any toggles,heartbeat ON (too long), we push an additional 0 into the signature (triple 0 would invalidate signature)
+; 20150717: Begining to run out of Flash code, lets just do 255 for the timeout (which will save the compare after increment)
 
 
-.equ  RESET_PULSE_LEN,      25    ; Reset pulse is 250ms
-.equ  PMICON_PULSE_LEN,     35    ; PMIC Button On pulse is 350ms
-.equ  PMICOFF_PULSE_LEN,   710    ; PMIC Button Off pulse is 7.1secs
 
 
 ;***************************************
 ; Target Application Specific Constants
 ;***************************************
 
+; SUMMARY of FLAGS
+;       x           x           x           x      |      x            x            x            x
+;    INRESET    POST_RESET   PMIC_ON               |  WD_ENABLED                QRST_TO       LED_ON
 
-; FLAG_WD_ENABLED bit is set once we have observed enough regular heartbeats matching the linux signature
+.equ  STATE_IN_RESET_BIT,         7
+.equ  STATE_POST_RESET_BIT,       6
+.equ  STATE_PMIC_ON_BIT,          5
+.equ  FLAG_WD_ENABLED_BIT,        3
+.equ  FLAG_QRST_TIMEOUT_BIT,      1
+.equ  FLAG_LED_IS_ON_BIT,         0
+
+; It is important for LED_IS_ON to be on bit0 so that we can easily roll it into the cary.
+
+
+; NOTE that STATE_IN_RESET, STATE_POST_RESET and STATE_PMIC_ON are really composites of a state machine controlling the PMIC button GPIO output
+; We pack them here in the flags to avoid creating a state varible but since they are states, they are MUTUALLY EXCLUSIVE.
+
+
+; STATE_IN_RESET  state idicates that we lost linux heartbeat and must issue a reset.
+; since we only have one output, this is accomplished by pressing the PMIC button for 10 seconds, release it for 1/2sec and then press it again for 1/2sec
+.equ  STATE_IN_RESET,             (1 << STATE_IN_RESET_BIT)
+
+; STATE_POST_RESET  flag is what happens after FLAG_IN_RESET where we wait 1/2 before pressing the PMIC button again to turn it back on
+; in this 'state', we wait 1/2 with the PMIC button OFF before switching over to STATE_PMIC_ON to re-start the PMIC
+.equ  STATE_POST_RESET,          (1 << STATE_POST_RESET_BIT)
+
+; STATE_PMIC_ON  flag indicates that we are in the middle of generating a pulse to the PMIC power button to turn the board ON
+; in this 'state', we wait for a pre-determined amount of 10ms counts and then release the power button
+.equ  STATE_PMIC_ON,             (1 << STATE_PMIC_ON_BIT)
+
+
+; FLAG_WD_ENABLED  is set once we have observed enough regular heartbeats matching the linux signature
 ; This in turn enables the Linux heartbeat Watchdog functionality where we Reset the BAV upon heartbeat timeouts.
-.equ  FLAG_WD_ENABLED_BIT,        7
 .equ  FLAG_WD_ENABLED,           (1 << FLAG_WD_ENABLED_BIT)
 
 
-; FLAG_PMICON flag indicates that we are in the middle of generating a pulse to the PMIC power button to turn it ON
-; in this state, we wait for a pre-determined amount of 10ms counts and then release the power button
-.equ  FLAG_INPOWER_PULSE_BIT,     5
-.equ  FLAG_INPOWER_PULSE,        (1 << FLAG_INPOWER_PULSE_BIT)
-
-
-; FLAG_RESETON flag indicates that we are in the middle of generating a reset to the BAV board
-; 201506: Since I do not want to forever disable ISP by disabling the RESET pin (to make it a GPIO)
-; I decided to use the PMIC to reset the board. We can depress the PMIC button for 10 seconds to force a power off
-; and then wait and depress the PMIC button again to turn it back on effectively causing the same as a RESET.
-.equ  FLAG_INRESET_PULSE_BIT,     4
-.equ  FLAG_INRESET_PULSE,        (1 << FLAG_INRESET_PULSE_BIT)
-
-
-; FLAG_QRST_TIMEOUT is set when a timeout (> 2 some seconds) happens waiting for a LED toggle
+; FLAG_QRST_TIMEOUT is set when a timeout (> 2.55 seconds) happens waiting for a LED toggle
 ; We keep track of this so that next time a LED toggle happens, we do not try to figure out timings, just log the bit
-.equ  FLAG_QRST_TIMEOUT_BIT,     1
 .equ  FLAG_QRST_TIMEOUT,        (1 << FLAG_QRST_TIMEOUT_BIT)
 
 
-; FLAG_LED_ISON is set/reset when we receive the toggle LED interrupt event to help us know if we timed out with the LED On or Off.
+; FLAG_LED_IS_ON is set/reset when we receive the toggle LED interrupt event to help us know if we timed out with the LED On or Off.
 ; We use this flag to push the last status of the LED into the heatbeat_signature when there is a time out on the heartbeat
 ; (this is why we use bit 0 so we can easily roll it into the carry with one instruction)
-.equ  FLAG_LED_IS_ON_BIT,        0
-.equ  FLAG_LED_IS_ON,           (1 << FLAG_LED_ISON_BIT)
+.equ  FLAG_LED_IS_ON,           (1 << FLAG_LED_IS_ON_BIT)
 
 
 
 ; The ONEs represent the LED on, single Zero is the short pulse between 2 ONs, and the TWO Zeroes are the long pulse
 ; so, a valid signature will look like 10s followed by 100s. something like 1010010100101001010010100 
-; To detect if watchdog is enabled, we test after a 1 so we will see either 1010 0101 0010 1001 -or- 1001 0100 1010 0101
-.equ  LINUX_VALID_SIGHI, 0xA5
-.equ  LINUX_VALID_SIGLO, 0x29
+; To detect if watchdog is enabled, we test right after logging a 1 so we will see either:
+;  1010 0101 0010 1001 - 0xA529
+;  1001 0100 1010 0101 - 0x94A5
+.equ  LINUX_VALID_SIGHI, 0x94
+.equ  LINUX_VALID_SIGLO, 0xA5
+
+
+; pressing the PMIC button got >8s causes power cycle. We depress it for 8.5 seconds to achieve thsi
+.equ  TIME_IN_RESET_HI,     3
+.equ  TIME_IN_RESET_LO,    82
+
+; Depress PMIC button fo 1/3 of s second to turn the board from OFF to ON state
+.equ  TIME_PMIC_ON,        30
+
+; Wait 50s after reset to check if we need to turn the power on (and check again every 2.55secs after that
+.equ  TIME_SETTLE_PMIC_TEST,  5
