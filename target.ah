@@ -68,6 +68,7 @@
 
 
 
+
 ;*******************************************
 ; Target Hardware Constants for application
 ;*******************************************
@@ -80,16 +81,16 @@
 ;      .<-- 125ms -->.<-- 155ms -->.<-- 125ms -->.<---------  775ms  --------->.                             .
 ;      |<--------  280ms  -------->|<----------------  900ms  ---------------->|
 ;
-; https://en.wikipedia.org/wiki/Cardiac_cycle
-; https://en.wikipedia.org/wiki/Electrical_conduction_system_of_the_heart
+.equ  LINUX_QRST_THRESHOLD,      40     ; If the low state lasts longer than this treshold, we shift a second '0' to the signature
 
 
-; Let QRS be the beat (LED on) 
-;.equ  LINUX_RS_MAX,         40    ; If linux heartbeat LED ON lasts longer than this, we log an extra 1 to mark a pulse too long (invalidate possible signature)
+.equ  TIME_SETTLE_PMIC_TEST,      8     ; We wait 80ms after reset to check if the board PMIC needs a pulse to turn on the power
 
-.equ  LINUX_STQ_THRESHOLD,  40     ; If the low state lasts longer than this treshold, we shift a second '0' to the signature
-;.equ  LINUX_RSTQ_TIMEOUT,  250    ; every 2.5s without any toggles,heartbeat ON (too long), we push an additional 0 into the signature (triple 0 would invalidate signature)
-; 20150717: Begining to run out of Flash code, lets just do 255 for the timeout (which will save the compare after increment)
+.equ  TIME_PMIC_ON,              30     ; Depress PMIC button fo 1/3 of s second to turn the board from OFF to ON state
+
+.equ  TIME_IN_RESET_HI,           3
+.equ  TIME_IN_RESET_LO,          82     ; pressing the PMIC button got >8s causes power cycle. We depress it for 8.5 seconds to achieve thsi
+
 
 
 
@@ -153,14 +154,3 @@
 ;  1001 0100 1010 0101 - 0x94A5
 .equ  LINUX_VALID_SIGHI, 0x94
 .equ  LINUX_VALID_SIGLO, 0xA5
-
-
-; pressing the PMIC button got >8s causes power cycle. We depress it for 8.5 seconds to achieve thsi
-.equ  TIME_IN_RESET_HI,     3
-.equ  TIME_IN_RESET_LO,    82
-
-; Depress PMIC button fo 1/3 of s second to turn the board from OFF to ON state
-.equ  TIME_PMIC_ON,        30
-
-; Wait 50s after reset to check if we need to turn the power on (and check again every 2.55secs after that
-.equ  TIME_SETTLE_PMIC_TEST,  5

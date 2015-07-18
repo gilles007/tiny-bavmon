@@ -139,6 +139,7 @@ _isr_adc:   ; ADC Conversion done
 
 _isr_t0ca:  ; Timer 0 compare A event
             ;
+            clr     r25   ; __zero_reg__
             push    r24
             in      r24, SREG
             push    r24
@@ -146,13 +147,6 @@ _isr_t0ca:  ; Timer 0 compare A event
             lds     r24, bios_timer_ticks
             inc     r24
             sts     bios_timer_ticks, r24
-;            brne    _t0_novf
-            ;
-;            lds     r25, bios_timer_ticks+1
-;            inc     r25
-;            sts     bios_timer_ticks+1, r25
-_t0_novf:   ;
-;            clr     r25
             andi    r24, 0x03
             breq    _t0_loadN
             ;
