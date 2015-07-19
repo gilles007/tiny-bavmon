@@ -39,7 +39,12 @@ _shift_signature:
 ;   r20 the current value of main_flags
 ;----------------------------------------------------------------------------------
 _set_state:
-            cbr     r20, STATE_IN_RESET | STATE_POST_RESET | STATE_PMIC_ON | FLAG_WD_ENABLED | FLAG_QRST_TIMEOUT
+            sts     qrst_timer, r25                           ; Reset all timers
+            sbrs    r20, STATE_PMIC_ON_BIT                    ; except if coming out of PMIC_ON to not retry right away (give PMIC a chance to settle)
+            sts     pulse_timer, r25
+            sts     pulse_timer+1, r25
+            ;
+            cbr     r20, STATE_IN_RESET | STATE_PMIC_ON | FLAG_WD_ENABLED | FLAG_QRST_TIMEOUT
             or      r20, r16                                  ;
             sts     main_flags, r20                           ; set new state in main_flags
             ldi     r16, STATE_IN_RESET | STATE_PMIC_ON
@@ -50,9 +55,6 @@ _set_state:
 _sst_swon:  ;                                                 ; else
             sbi     PORT_OUT, OUT_PMICBUTTON_BIT              ;   depress the PMIC_BUTTON
 _sst_end:   ;
-            sts     qrst_timer, r25
-            sts     pulse_timer, r25
-            sts     pulse_timer+1, r25
             ret
 
 
@@ -70,11 +72,10 @@ _sst_end:   ;
 _main:      ;
             ; Pre-loop initialization (? not much to do here)
             ;
-            clr     r25                           ; r25 is our system wide zero register (just being paranoid)
+            clr     r25                                   ; __zero_register__
             lds     r20, main_flags
             clr     r16
-            rcall   _set_state                    ; set_state 0
- sbi     PORT_OUT, OUT_PMICBUTTON_BIT              ;   DEBUG   DEBUG   DEBUG   DEBUG    DEBUG
+            rcall   _set_state                            ; set_state 0
             ;
             ;
             ;**************************************************************************************************
@@ -121,7 +122,6 @@ _evled_do:  ;
             lds     r16, heartbeat_signature
             subi    r16, LINUX_VALID_SIGLO
             brne    _continue                             ; if (signature == LINUX_VALID_SIGNATURE)
- cbi     PORT_OUT, OUT_PMICBUTTON_BIT              ;   DEBUG   DEBUG   DEBUG   DEBUG    DEBUG   // INDICATE THAT WE'VE RECOGNIZED THE LINUX HEARTBEAT
 
             sbr     r20, FLAG_WD_ENABLED                  ;   // SAY WE HAVE OBSERVED A LINUX HEARTBEAT FOR LONG ENOUGH
             sts     main_flags, r20                       ;   // FROM NOW ON, THE WATCHDOG FUNCTIONALITY IS ENABLED
@@ -140,37 +140,38 @@ _ev_timer:  ;***************************************************
             lds     r22, pulse_timer
             lds     r23, pulse_timer+1
             subi    r22, -1
-            sbci    r23, -1                                   ; pulse_timer++;
-            sts     pulse_timer+1, r23
+            sbci    r23, -1                               ; pulse_timer++;
             sts     pulse_timer, r22
+            sts     pulse_timer+1, r23
             ;
             sbrc    r20, STATE_IN_RESET_BIT               ; if (state == IN_RESET)
             rjmp    _st_inrst                             ;   handle_reset_pulse();
             sbrc    r20, STATE_PMIC_ON_BIT                ; else if (state == PMIC_ON) {
             rjmp    _st_inpmic                            ;   handle_pmic();
-            cpi     r22, TIME_SETTLE_PMIC_TEST            ; else if (lo(pulse_timer) == TIME_SETTLE_PMIC_TEST) {  // every 2.5s (starting shortly after reset)
-            ;;
-            ;; TODO: Check if power needs to be turned on
-            ;            sbis    PORT_IN, LINUX_HBLED_BIT
-
-            ;;
-            rjmp    _evt_qrst
+            cpi     r22, TIME_SETTLE_PMIC_TEST            ; else if (lo(pulse_timer) == TIME_SETTLE_PMIC_TEST) {  // shortly agter power-up, and every 2.55s
+            brne    _evt_qrst
+            ;
+            sbis    PORT_IN, BOOTSTRAP_PWR_BIT
+            rjmp    _evt_qrst                             ;   if (BAV board power is off)  // (input is high) {
+            ldi     r16, STATE_PMIC_ON                    ;     set_state(PMIC_ON)  // depress PMIC button to force board on
+            rcall   _set_state                            ;
+            rjmp    _continue                             ;     continue;
+            ;                                             ;   }
             ;
             ;
-_st_inpmic: ;                                             ; function handle_pmic() {
-            cpi     r22, TIME_PMIC_ON
+            ;
+_st_inpmic: ;                                             ; function handle_pmic()
+            cpi     r22, TIME_PMIC_ON                     ; {
             brne    _continue                             ;   if (pulse_timer == TIME_PMIC_ON)
             rjmp    1f                                    ;     _set_state(NORMAL_OPERATION) // normal state after power-on or reset
-            ;
             ;                                             ; }
             ;
             ;
-_st_inrst:  ;                                             ; function handle_reset() {
-            cpi     r22, TIME_IN_RESET_LO
+_st_inrst:  ;                                             ; function handle_reset()
+            cpi     r22, TIME_IN_RESET_LO                 ; {
             sbci    r23, TIME_IN_RESET_HI
             brne    _continue                             ;   if (pulse_timer == TIME_IN_RESET)
 1:          clr     r16                                   ;     _set_state(NORMAL_OPERATION) // normal state after power-on or reset
-            ldi     r16, STATE_POST_RESET
             rcall   _set_state
             rjmp    _continue                             ; }
             ;
@@ -199,7 +200,7 @@ _evt_qrst:  ;  WHEN NO SPECIAL STATES (PMIC) NEED TO BE HANDLED, CHECK QRST
             sbc     r19, r25
             cpi     r18, -2
             sbci    r19, -1
-            brlo    _continue                             ;   {
+            brlo    _continue2                            ;   {
             ;                                             ;     // WE HAVE NOT HAD A LINUX HEARTBEAT IN A WHILE: THIS MEANS RESET!
             cbr     r20, FLAG_WD_ENABLED                  ;     Clear WD_ENABLED bit Since we're about to reset, disable
             sts     main_flags, r20

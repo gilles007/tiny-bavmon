@@ -101,14 +101,13 @@
 
 ; SUMMARY of FLAGS
 ;       x           x           x           x      |      x            x            x            x
-;    INRESET    POST_RESET   PMIC_ON               |  WD_ENABLED                QRST_TO       LED_ON
+;   IN_RESET                  PMIC_ON              |  WD_ENABLED                QRST_TO       LED_ON
 
-.equ  STATE_IN_RESET_BIT,         7
-.equ  STATE_POST_RESET_BIT,       6
-.equ  STATE_PMIC_ON_BIT,          5
-.equ  FLAG_WD_ENABLED_BIT,        3
-.equ  FLAG_QRST_TIMEOUT_BIT,      1
-.equ  FLAG_LED_IS_ON_BIT,         0
+.equ  STATE_IN_RESET_BIT,         7                 ; set while we are generating a long PMIC pulse to produce a power off/on reset
+.equ  STATE_PMIC_ON_BIT,          5                 ; set while we are generating a short PMIC pulse to produce a power on on PMIC
+.equ  FLAG_WD_ENABLED_BIT,        3                 ; set after we detected a stable linux heart-beat that lasts long enough to enable the Watch Dog functionality 
+.equ  FLAG_QRST_TIMEOUT_BIT,      1                 ; set when we have not seen any Linux Heart-beat LED activity in 2.55 seconds (qrst counter rollover timeout)
+.equ  FLAG_LED_IS_ON_BIT,         0                 ; mirrors the last seen state of the linux heartbeat LED (1 if ON, 0 if OFF)
 
 ; It is important for LED_IS_ON to be on bit0 so that we can easily roll it into the cary.
 
@@ -118,12 +117,9 @@
 
 
 ; STATE_IN_RESET  state idicates that we lost linux heartbeat and must issue a reset.
-; since we only have one output, this is accomplished by pressing the PMIC button for 10 seconds, release it for 1/2sec and then press it again for 1/2sec
+; since we only have one output, this is accomplished by pressing the PMIC button for 8.5 seconds
 .equ  STATE_IN_RESET,             (1 << STATE_IN_RESET_BIT)
 
-; STATE_POST_RESET  flag is what happens after FLAG_IN_RESET where we wait 1/2 before pressing the PMIC button again to turn it back on
-; in this 'state', we wait 1/2 with the PMIC button OFF before switching over to STATE_PMIC_ON to re-start the PMIC
-.equ  STATE_POST_RESET,          (1 << STATE_POST_RESET_BIT)
 
 ; STATE_PMIC_ON  flag indicates that we are in the middle of generating a pulse to the PMIC power button to turn the board ON
 ; in this 'state', we wait for a pre-determined amount of 10ms counts and then release the power button
