@@ -1,0 +1,36 @@
+Power Monitor and Heartbeat watchdog for Birdland Audio's
+BAV335x Network Processor Module
+(http://birdland.com/oem/bav335x-network-processor).
+
+The BAV335x Network Processor module utilizes a AT tiny4
+micro-controller (U8) to monitor the module's PMIC and this
+is the code that runs on U8.
+
+This code provides two options selectable by two startup
+boot-strap pins on the BAV335x module. The options are:
+
+1) Always-on monitor. The code monitors the power mode
+of the PMIC and if it is off, simulates a user-press on
+the PMIC's power button to make sure the BAV335x is always
+power on. This is esepcially useful for Ethernet appliances
+that must always be on. Also if the operating system shuts
+down, then the monitor will kick in and turn the power on
+again allowing an appliance to software generate a full
+power cycle reboot by simply shutting down.
+
+2) Linux Heartbeat LED watchdog. If the BAV335x module
+pin.135 (AT tiny U8 pin.1) is tied to the linux heartbeat
+LED (usually BAV335x module pin.57), then U8 will also
+act as a watchdog rebooting the system if the heartbeat
+is lost for aproximatively 40 seconds. The software
+watchdog is only enabled if it sees a typical linux
+hearbeat pattern repeat itself four times. The reason
+for this is to prevent rebooting the board if the
+system takes a long time to boot for unknown reasons.
+The downside of this of course being that if the
+OS does not boot, then no reboot occurs (which is
+an acceptable behavior considering that if it doesn't
+boot, then it probably also wouldn't boot after a reset).
+U8 reboots the system by depressing the PMIC button for
+seven seconds causing the power to be shut-off and then
+turned on again. IE: The watchdoc performs a cold reboot).

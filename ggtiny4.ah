@@ -1,3 +1,25 @@
+;
+;  reset.s90 - AT Tiny4 minimalistic processor definitions
+;
+;    We need this because gnu-avr does not allow to use the .h file without
+;    automatically enabling the startup code and this code uses it's own startup
+;
+;    Copyright (C) 1999-2015  Gilles Gameiro / Birdland Audio
+;
+;    This program is free software; you can redistribute it and/or modify
+;    it under the terms of the GNU General Public License as published by
+;    the Free Software Foundation; either version 2 of the License, or
+;    (at your option) any later version.
+;
+;    This program is distributed in the hope that it will be useful,
+;    but WITHOUT ANY WARRANTY; without even the implied warranty of
+;    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;    GNU General Public License for more details.
+;
+;    You should have received a copy of the GNU General Public License along
+;    with this program; if not, write to the Free Software Foundation, Inc.,
+;    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+
 .equ  PINB,     0x00
 .equ  DDRB,     0x01
 .equ  PORTB,    0x02
@@ -36,8 +58,6 @@
 .equ  SPH,      0x3e
 .equ  SREG,     0x3f
 
-
 .equ  RAMEND,   0x5f
-
 
 .equ  CCP_SIGNATURE, 0xD8
