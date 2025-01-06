@@ -1,6 +1,6 @@
 Power Monitor and Heartbeat watchdog for Birdland Audio's
 BAV335x Network Processor Module
-(http://birdland.com/oem/bav335x-network-processor).
+(http://birdlandaudio.com/oem/bav335x-network-processor).
 
 The BAV335x Network Processor module utilizes a AT tiny4
 micro-controller (U8) to monitor the module's PMIC and this
